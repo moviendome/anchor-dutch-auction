@@ -18,4 +18,6 @@ pub enum AuctionError {
     PriceExceedsMax,
     #[msg("Arithmetic overflow")]
     Overflow,
+    #[msg("Auction has already started")]
+    AuctionAlreadyStarted,
 }

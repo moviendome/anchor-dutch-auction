@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Transfer};
+use anchor_spl::token_interface::{transfer_checked, TransferChecked};
 
 pub mod error;
 pub mod instructions;
@@ -33,44 +33,52 @@ pub mod dutch_auction {
     }
 }
 
-pub fn transfer<'info>(
+pub(crate) fn transfer_checked_cpi<'info>(
     from: &AccountInfo<'info>,
     to: &AccountInfo<'info>,
+    mint: &AccountInfo<'info>,
     authority: &AccountInfo<'info>,
     token_program: &AccountInfo<'info>,
     amount: u64,
+    decimals: u8,
 ) -> Result<()> {
-    token::transfer(
+    transfer_checked(
         CpiContext::new(
             token_program.clone(),
-            Transfer {
+            TransferChecked {
                 from: from.clone(),
                 to: to.clone(),
+                mint: mint.clone(),
                 authority: authority.clone(),
             },
         ),
         amount,
+        decimals,
     )
 }
 
-pub fn transfer_from_pda<'info>(
+pub(crate) fn transfer_checked_from_pda<'info>(
     from: &AccountInfo<'info>,
     to: &AccountInfo<'info>,
+    mint: &AccountInfo<'info>,
     authority: &AccountInfo<'info>,
     token_program: &AccountInfo<'info>,
     amount: u64,
+    decimals: u8,
     seeds: &[&[&[u8]]],
 ) -> Result<()> {
-    token::transfer(
+    transfer_checked(
         CpiContext::new_with_signer(
             token_program.clone(),
-            Transfer {
+            TransferChecked {
                 from: from.clone(),
                 to: to.clone(),
+                mint: mint.clone(),
                 authority: authority.clone(),
             },
             seeds,
         ),
         amount,
+        decimals,
     )
 }

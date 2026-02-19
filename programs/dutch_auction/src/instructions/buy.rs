@@ -1,9 +1,11 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{close_account, CloseAccount, Mint, Token, TokenAccount};
+use anchor_spl::token_interface::{
+    close_account, CloseAccount, Mint, TokenAccount, TokenInterface,
+};
 
 use crate::error::AuctionError;
 use crate::state::Auction;
-use crate::{transfer, transfer_from_pda};
+use crate::{transfer_checked_cpi, transfer_checked_from_pda};
 
 pub fn buy(ctx: Context<BuyCtx>, max_price: u64) -> Result<()> {
     let clock = Clock::get()?;
@@ -39,12 +41,14 @@ pub fn buy(ctx: Context<BuyCtx>, max_price: u64) -> Result<()> {
 
     require!(buy_amount > 0, AuctionError::InvalidAmount);
 
-    transfer(
+    transfer_checked_cpi(
         &ctx.accounts.buyer_buy_ata.to_account_info(),
         &ctx.accounts.seller_buy_ata.to_account_info(),
+        &ctx.accounts.buy_mint.to_account_info(),
         &ctx.accounts.buyer.to_account_info(),
         &ctx.accounts.token_program.to_account_info(),
         buy_amount,
+        ctx.accounts.buy_mint.decimals,
     )?;
 
     let seller_key = auction.seller.key();
@@ -56,12 +60,14 @@ pub fn buy(ctx: Context<BuyCtx>, max_price: u64) -> Result<()> {
         &[auction.bump],
     ];
 
-    transfer_from_pda(
+    transfer_checked_from_pda(
         &ctx.accounts.auction_sell_ata.to_account_info(),
         &ctx.accounts.buyer_sell_ata.to_account_info(),
+        &ctx.accounts.sell_mint.to_account_info(),
         &ctx.accounts.auction.to_account_info(),
         &ctx.accounts.token_program.to_account_info(),
         auction.sell_amount,
+        ctx.accounts.sell_mint.decimals,
         &[seeds],
     )?;
 
@@ -87,8 +93,8 @@ pub struct BuyCtx<'info> {
     #[account(mut)]
     pub seller: AccountInfo<'info>,
 
-    pub sell_mint: Account<'info, Mint>,
-    pub buy_mint: Account<'info, Mint>,
+    pub sell_mint: InterfaceAccount<'info, Mint>,
+    pub buy_mint: InterfaceAccount<'info, Mint>,
 
     #[account(
         mut,
@@ -107,28 +113,28 @@ pub struct BuyCtx<'info> {
         bump,
         constraint = auction_sell_ata.mint == sell_mint.key(),
     )]
-    pub auction_sell_ata: Account<'info, TokenAccount>,
+    pub auction_sell_ata: InterfaceAccount<'info, TokenAccount>,
 
     #[account(
         mut,
         constraint = buyer_buy_ata.mint == buy_mint.key(),
         constraint = buyer_buy_ata.owner == buyer.key(),
     )]
-    pub buyer_buy_ata: Account<'info, TokenAccount>,
+    pub buyer_buy_ata: InterfaceAccount<'info, TokenAccount>,
 
     #[account(
         mut,
         constraint = buyer_sell_ata.mint == sell_mint.key(),
         constraint = buyer_sell_ata.owner == buyer.key(),
     )]
-    pub buyer_sell_ata: Account<'info, TokenAccount>,
+    pub buyer_sell_ata: InterfaceAccount<'info, TokenAccount>,
 
     #[account(
         mut,
         constraint = seller_buy_ata.mint == buy_mint.key(),
         constraint = seller_buy_ata.owner == seller.key(),
     )]
-    pub seller_buy_ata: Account<'info, TokenAccount>,
+    pub seller_buy_ata: InterfaceAccount<'info, TokenAccount>,
 
-    pub token_program: Program<'info, Token>,
+    pub token_program: Interface<'info, TokenInterface>,
 }

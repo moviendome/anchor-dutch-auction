@@ -12,7 +12,7 @@ The Dutch Auction program implements an SPL token auction mechanism:
 
 1. **Init**: Seller creates an auction, depositing sell tokens into escrow
 2. **Buy**: Buyer purchases at the current (decreasing) price, exchanging buy tokens for sell tokens
-3. **Cancel**: Seller cancels the auction and reclaims sell tokens
+3. **Cancel**: Seller cancels the auction before it starts and reclaims sell tokens
 
 This is part of the [Cyfrin Solana Course](https://updraft.cyfrin.io/) - Section 6.
 
@@ -69,12 +69,12 @@ Creates a new auction and transfers sell tokens into escrow.
 
 **Accounts:**
 - `seller` (signer, mutable) - The account creating the auction
-- `sell_mint` - Mint of the token being sold
-- `buy_mint` - Mint of the token accepted as payment
+- `sell_mint` - Mint of the token being sold (InterfaceAccount — supports Token-2022)
+- `buy_mint` - Mint of the token accepted as payment (InterfaceAccount)
 - `auction` (PDA, mutable) - The auction state account
-- `auction_sell_ata` (PDA, mutable) - Escrow token account for sell tokens
-- `seller_sell_ata` (mutable) - Seller's sell token account
-- `token_program` - SPL Token program
+- `auction_sell_ata` (PDA, mutable) - Escrow token account for sell tokens (InterfaceAccount)
+- `seller_sell_ata` (mutable) - Seller's sell token account (InterfaceAccount)
+- `token_program` - SPL Token or Token-2022 program (Interface)
 - `system_program` - System program
 
 **Validations:**
@@ -88,19 +88,19 @@ Creates a new auction and transfers sell tokens into escrow.
 Purchases the auctioned tokens at the current price.
 
 **Parameters:**
-- `max_price: u64` - Maximum price the buyer is willing to pay
+- `max_price: u64` - Maximum price the buyer is willing to pay (slippage protection)
 
 **Accounts:**
 - `buyer` (signer, mutable) - The buyer
-- `seller` (mutable) - The auction creator
-- `sell_mint` - Mint of the token being sold
-- `buy_mint` - Mint of the payment token
+- `seller` (mutable) - The auction creator (validated via `has_one`)
+- `sell_mint` - Mint of the token being sold (InterfaceAccount)
+- `buy_mint` - Mint of the payment token (InterfaceAccount)
 - `auction` (PDA, mutable) - The auction state account
-- `auction_sell_ata` (PDA, mutable) - Escrow token account
-- `buyer_buy_ata` (mutable) - Buyer's payment token account
-- `buyer_sell_ata` (mutable) - Buyer's account for received tokens
-- `seller_buy_ata` (mutable) - Seller's account for received payment
-- `token_program` - SPL Token program
+- `auction_sell_ata` (PDA, mutable) - Escrow token account (InterfaceAccount)
+- `buyer_buy_ata` (mutable) - Buyer's payment token account (InterfaceAccount)
+- `buyer_sell_ata` (mutable) - Buyer's account for received tokens (InterfaceAccount)
+- `seller_buy_ata` (mutable) - Seller's account for received payment (InterfaceAccount)
+- `token_program` - SPL Token or Token-2022 program (Interface)
 
 **Validations:**
 - Auction must have started (`AuctionNotStarted`)
@@ -114,252 +114,85 @@ elapsed = current_time - start_time
 duration = end_time - start_time
 price_decrease = (start_price - end_price) * elapsed / duration
 current_price = start_price - price_decrease
+buy_amount = sell_amount * current_price / 10^sell_decimals
 ```
+
+The price unit is **buy-token smallest units per one whole sell token**. For example, with a 9-decimal sell token and a 6-decimal buy token, setting `start_price = 2_000_000` means 2 buy tokens per sell token.
 
 ### 3. Cancel
 
-Cancels the auction and returns sell tokens to the seller.
+Cancels the auction and returns sell tokens to the seller. Only allowed **before the auction starts** to prevent front-running buyers.
 
 **Accounts:**
 - `seller` (signer, mutable) - Must be the auction creator
-- `sell_mint` - Mint of the sell token
+- `sell_mint` - Mint of the sell token (InterfaceAccount)
 - `auction` (PDA, mutable) - The auction state account
-- `auction_sell_ata` (PDA, mutable) - Escrow token account
-- `seller_sell_ata` (mutable) - Seller's token account to receive tokens back
-- `token_program` - SPL Token program
+- `auction_sell_ata` (PDA, mutable) - Escrow token account (InterfaceAccount)
+- `seller_sell_ata` (mutable) - Seller's token account to receive tokens back (InterfaceAccount)
+- `token_program` - SPL Token or Token-2022 program (Interface)
 
-## Code Walkthrough
+**Validations:**
+- Current time must be before `start_time` (`AuctionAlreadyStarted`)
+- Seller must match auction creator (`has_one = seller`)
 
-### State: Auction Account
+## PDAs
 
-```rust
-#[account]
-#[derive(InitSpace)]
-pub struct Auction {
-    pub seller: Pubkey,
-    pub sell_mint: Pubkey,
-    pub buy_mint: Pubkey,
-    pub sell_amount: u64,
-    pub start_price: u64,
-    pub end_price: u64,
-    pub start_time: u64,
-    pub end_time: u64,
-    pub bump: u8,
-}
-```
+| Account | Seeds | Purpose |
+|---------|-------|---------|
+| Auction | `["auction", seller, sell_mint]` | Stores auction config |
+| Escrow | `["auction_sell_ata", auction]` | Holds escrowed sell tokens |
 
-The Auction account stores:
-- **seller**: Public key of the auction creator
-- **sell_mint / buy_mint**: The two token mints involved
-- **sell_amount**: Total tokens being sold
-- **start_price / end_price**: Price range for linear decrease
-- **start_time / end_time**: Auction time window
-- **bump**: PDA bump seed for signing
+One auction per seller per sell mint. The escrow authority is the auction PDA, enabling trustless token transfers via PDA signatures.
 
-### Custom Errors
+## Token-2022 Support
 
-```rust
-#[error_code]
-pub enum AuctionError {
-    #[msg("Sell token and buy token must be different")]
-    SameToken,
-    #[msg("Start price must be greater than or equal to end price")]
-    InvalidPrice,
-    #[msg("Invalid time range")]
-    InvalidTime,
-    #[msg("Sell amount must be greater than 0")]
-    InvalidAmount,
-    #[msg("Auction has not started yet")]
-    AuctionNotStarted,
-    #[msg("Auction has ended")]
-    AuctionEnded,
-    #[msg("Price exceeds max price")]
-    PriceExceedsMax,
-    #[msg("Arithmetic overflow")]
-    Overflow,
-}
-```
+All token accounts use `InterfaceAccount<'info, TokenAccount>` and `Interface<'info, TokenInterface>`, making the program compatible with both classic SPL Token and Token-2022 mints. All transfers use `transfer_checked` which validates the mint and decimals for additional safety.
 
-### Transfer Helpers (lib.rs)
+## Security
 
-```rust
-pub fn transfer<'info>(
-    from: &AccountInfo<'info>,
-    to: &AccountInfo<'info>,
-    authority: &AccountInfo<'info>,
-    token_program: &AccountInfo<'info>,
-    amount: u64,
-) -> Result<()> {
-    token::transfer(
-        CpiContext::new(token_program.clone(), Transfer { from, to, authority }),
-        amount,
-    )
-}
-
-pub fn transfer_from_pda<'info>(
-    from: &AccountInfo<'info>,
-    to: &AccountInfo<'info>,
-    authority: &AccountInfo<'info>,
-    token_program: &AccountInfo<'info>,
-    amount: u64,
-    seeds: &[&[&[u8]]],
-) -> Result<()> {
-    token::transfer(
-        CpiContext::new_with_signer(token_program.clone(), Transfer { from, to, authority }, seeds),
-        amount,
-    )
-}
-```
-
-Key difference:
-- **transfer**: User signs (for buyer/seller transfers)
-- **transfer_from_pda**: PDA signs with seeds (for escrow transfers)
-
-### Init Instruction
-
-```rust
-pub fn init(ctx: Context<InitCtx>, sell_amount: u64, ...) -> Result<()> {
-    // Validations
-    require_keys_neq!(sell_mint, buy_mint, AuctionError::SameToken);
-    require!(start_price >= end_price, AuctionError::InvalidPrice);
-    require!(current_time <= start_time && start_time < end_time, AuctionError::InvalidTime);
-    require!(sell_amount > 0, AuctionError::InvalidAmount);
-
-    // Transfer sell tokens to escrow
-    transfer(&seller_sell_ata, &auction_sell_ata, &seller, &token_program, sell_amount)?;
-
-    // Store state
-    auction.seller = seller.key();
-    // ...
-}
-```
-
-### Buy Instruction
-
-```rust
-pub fn buy(ctx: Context<BuyCtx>, max_price: u64) -> Result<()> {
-    // Check timing
-    require!(current_time >= auction.start_time, AuctionError::AuctionNotStarted);
-    require!(current_time < auction.end_time, AuctionError::AuctionEnded);
-
-    // Linear price decrease
-    let current_price = start_price - (price_range * elapsed / duration);
-    require!(current_price <= max_price, AuctionError::PriceExceedsMax);
-
-    // Calculate buy amount (with zero-check to prevent free-token exploit)
-    let buy_amount = sell_amount * current_price / 10^decimals;
-    require!(buy_amount > 0, AuctionError::InvalidAmount);
-
-    // Execute swaps
-    transfer(&buyer_buy_ata, &seller_buy_ata, &buyer, ...);        // buyer pays
-    transfer_from_pda(&auction_sell_ata, &buyer_sell_ata, ...);     // buyer receives
-
-    // Close escrow account
-    close_account(CpiContext::new_with_signer(...))?;
-}
-```
-
-### Cancel Instruction
-
-```rust
-pub fn cancel(ctx: Context<CancelCtx>) -> Result<()> {
-    // Return sell tokens to seller
-    transfer_from_pda(&auction_sell_ata, &seller_sell_ata, ...);
-
-    // Close escrow account
-    close_account(CpiContext::new_with_signer(...))?;
-}
-```
+- **Cancel restricted to pre-start**: prevents seller from front-running a buyer's purchase transaction
+- **Checked arithmetic**: all math uses `checked_*` operations with `u128` intermediates
+- **`has_one` constraints**: validate seller, sell_mint, and buy_mint match stored state
+- **PDA seed verification**: seeds + bump validated on every instruction
+- **`transfer_checked`**: validates mint and decimals on every token transfer
+- **Account cleanup**: both escrow token account and auction account are closed after buy/cancel
 
 ## Testing
 
-The test suite covers:
+The test suite covers happy paths and validation:
 
-1. **Initialize auction**: Creates auction, verifies state, verifies token escrow
-2. **Buy from auction**: Waits for start, buys at current price, verifies token swaps and account closure
-3. **Cancel auction**: Creates separate auction, cancels it, verifies token return and account closure
+```
+dutch_auction
+  ✔ initializes an auction
+  ✔ buys from the auction
+  cancel
+    ✔ cancels an auction and returns tokens
+  init validation
+    ✔ rejects same sell and buy mint
+    ✔ rejects start_price < end_price
+    ✔ rejects start_time in the past
+    ✔ rejects start_time >= end_time
+    ✔ rejects zero sell_amount
+  buy validation
+    ✔ rejects buy before auction starts
+  cancel validation
+    ✔ rejects cancel after auction has started
+    ✔ rejects cancel by non-seller
 
-### Running Tests
+11 passing
+```
 
 ```bash
 anchor test
 ```
 
-### Expected Output
+## Design Decisions
 
-```
-  dutch_auction
-    ✔ initializes an auction
-    ✔ buys from the auction
-    cancel
-      ✔ cancels an auction and returns tokens
-
-  3 passing
-```
-
-## Key Learnings
-
-### 1. PDA-Based Escrow
-
-The auction uses two PDAs:
-
-```rust
-// Auction state PDA
-seeds = [b"auction", seller.key().as_ref(), sell_mint.key().as_ref()]
-
-// Escrow token account PDA
-seeds = [b"auction_sell_ata", auction.key().as_ref()]
-```
-
-The auction PDA acts as the authority for the escrow token account, allowing the program to sign transfers via `CpiContext::new_with_signer`.
-
-### 2. SPL Token Operations
-
-Three key CPI operations used:
-
-```rust
-// Regular transfer (user signs)
-token::transfer(CpiContext::new(...), amount)?;
-
-// PDA transfer (program signs with seeds)
-token::transfer(CpiContext::new_with_signer(..., seeds), amount)?;
-
-// Close token account (return rent to seller)
-close_account(CpiContext::new_with_signer(..., seeds))?;
-```
-
-### 3. Linear Price Decrease
-
-The Dutch auction price formula using integer arithmetic with u128 intermediates to prevent overflow:
-
-```rust
-let price_decrease: u64 = (price_range as u128)
-    .checked_mul(elapsed as u128)?
-    .checked_div(duration as u128)?
-    .try_into()?;  // Safe u128→u64 conversion
-let current_price = start_price - price_decrease;
-```
-
-### 4. Account Constraints with has_one
-
-Anchor's `has_one` constraint validates that an account field matches a provided account:
-
-```rust
-#[account(
-    mut,
-    close = seller,
-    has_one = seller,      // auction.seller == seller.key()
-    has_one = sell_mint,   // auction.sell_mint == sell_mint.key()
-    has_one = buy_mint,    // auction.buy_mint == buy_mint.key()
-)]
-pub auction: Account<'info, Auction>,
-```
-
-### 5. Closing Accounts
-
-Two account closure mechanisms:
-- `close = seller` on the auction account returns rent to the seller
-- `close_account` CPI closes the escrow token account
+- **Cancel restricted to pre-start**: prevents seller front-running a buyer's transaction with a cancel
+- **One auction per (seller, sell_mint)**: simplifies PDA derivation; use different mints for concurrent auctions
+- **Price in buy-token units**: `current_price` is denominated in buy-token smallest units per one whole sell token
+- **All-or-nothing sale**: the entire `sell_amount` goes to the first buyer
+- **Token-2022 compatible**: uses `InterfaceAccount` / `Interface` for forward compatibility
 
 ## Resources
 
