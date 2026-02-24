@@ -8,12 +8,15 @@ skip-lint = false
 [programs.localnet]
 dutch_auction = "BgU4SppsedWxpVqyAGyRkebCpYAZZoFsyWvNL3kgxT5u"
 
+[programs.devnet]
+dutch_auction = "BgU4SppsedWxpVqyAGyRkebCpYAZZoFsyWvNL3kgxT5u"
+
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
 cluster = "localnet"
-wallet = "~/.config/solana/id.json"
+wallet = "~/Cyfrin/wallet.json"
 
 [test]
 startup_wait = 10000
