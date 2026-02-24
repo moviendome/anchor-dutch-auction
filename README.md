@@ -29,6 +29,12 @@ dutch_auction/
 │       ├── init.rs            # Init instruction
 │       ├── buy.rs             # Buy instruction
 │       └── cancel.rs          # Cancel instruction
+├── app/                       # Next.js frontend (see app/README.md)
+│   ├── app/                   # Pages and layouts
+│   ├── components/            # React components
+│   ├── hooks/                 # Program interaction hooks
+│   └── generated/             # Codama-generated Kit-native client
+├── codama.mjs                 # Client generation script
 ├── tests/
 │   └── dutch_auction.ts       # TypeScript tests
 └── README.md
@@ -193,6 +199,10 @@ anchor test
 - **Price in buy-token units**: `current_price` is denominated in buy-token smallest units per one whole sell token
 - **All-or-nothing sale**: the entire `sell_amount` goes to the first buyer
 - **Token-2022 compatible**: uses `InterfaceAccount` / `Interface` for forward compatibility
+
+## Frontend
+
+The `app/` directory contains a Next.js frontend built with the modern Solana stack — no legacy `@solana/web3.js` or wallet-adapter. See [`app/README.md`](./app/README.md) for setup and usage.
 
 ## Resources
 
