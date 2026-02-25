@@ -9,3 +9,6 @@ test-ledger
 # Next.js
 app/.next/
 app/.env.local
+
+# Kamal
+app/.kamal/secrets

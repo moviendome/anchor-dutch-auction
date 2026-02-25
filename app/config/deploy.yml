@@ -1,0 +1,32 @@
+service: dutchauction
+
+image: moviendome/dutchauction
+
+servers:
+  web:
+    hosts:
+      - 65.109.172.171
+    options:
+      memory: 256m
+      cpus: "0.5"
+
+proxy:
+  ssl: true
+  host: dutchauction.moviendo.me
+  app_port: 3000
+  healthcheck:
+    path: /
+    interval: 3
+    timeout: 30
+
+registry:
+  server: "localhost:5555"
+  password:
+    - KAMAL_REGISTRY_PASSWORD
+
+builder:
+  arch:
+    - amd64
+
+ssh:
+  user: me
