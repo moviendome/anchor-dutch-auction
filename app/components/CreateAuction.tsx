@@ -3,7 +3,8 @@
 import { useState, type FormEvent } from "react";
 import { useSelectedWalletAccount } from "@solana/react";
 import { useWalletAccountTransactionSendingSigner } from "@solana/react";
-import { useCreateAuction } from "@/hooks/useDutchAuction";
+import { useCreateAuction, rpc } from "@/hooks/useDutchAuction";
+import { address } from "@solana/kit";
 import type { UiWalletAccount } from "@wallet-standard/ui";
 
 const DURATION_OPTIONS = [
@@ -49,21 +50,47 @@ function CreateAuctionForm({
     )
       return;
 
-    const decimals = 9;
-    const now = Math.floor(Date.now() / 1000);
-    const startTime = now + DELAY_SECONDS;
-    const endTime = startTime + duration;
-
     try {
+      // Fetch actual decimals from the on-chain mint accounts
+      const [sellMintInfo, buyMintInfo] = await Promise.all([
+        rpc.getAccountInfo(address(sellMint), { encoding: "base64" }).send(),
+        rpc.getAccountInfo(address(buyMint), { encoding: "base64" }).send(),
+      ]);
+
+      if (!sellMintInfo.value || !buyMintInfo.value) {
+        throw new Error("Could not fetch mint accounts. Check addresses.");
+      }
+
+      // SPL Mint layout: decimals is at byte offset 44 (u8)
+      const sellData = sellMintInfo.value.data;
+      const buyData = buyMintInfo.value.data;
+      const sellBytes = typeof sellData === "string"
+        ? Uint8Array.from(atob(sellData), (c) => c.charCodeAt(0))
+        : Array.isArray(sellData)
+          ? Uint8Array.from(atob(sellData[0] as string), (c) => c.charCodeAt(0))
+          : sellData as unknown as Uint8Array;
+      const buyBytes = typeof buyData === "string"
+        ? Uint8Array.from(atob(buyData), (c) => c.charCodeAt(0))
+        : Array.isArray(buyData)
+          ? Uint8Array.from(atob(buyData[0] as string), (c) => c.charCodeAt(0))
+          : buyData as unknown as Uint8Array;
+
+      const sellDecimals = sellBytes[44];
+      const buyDecimals = buyBytes[44];
+
+      // sell_amount: in raw sell token units
+      // price: in raw buy token units per one whole sell token
+      const now = Math.floor(Date.now() / 1000);
+      const startTime = now + DELAY_SECONDS;
+      const endTime = startTime + duration;
+
       await create(signer, {
         sellMint,
         buyMint,
         sellerSellAta,
-        sellAmount: BigInt(Math.floor(parseFloat(sellAmount) * 10 ** decimals)),
-        startPrice: BigInt(
-          Math.floor(parseFloat(startPrice) * 10 ** decimals)
-        ),
-        endPrice: BigInt(Math.floor(parseFloat(endPrice) * 10 ** decimals)),
+        sellAmount: BigInt(Math.floor(parseFloat(sellAmount) * 10 ** sellDecimals)),
+        startPrice: BigInt(Math.floor(parseFloat(startPrice) * 10 ** buyDecimals)),
+        endPrice: BigInt(Math.floor(parseFloat(endPrice) * 10 ** buyDecimals)),
         startTime: BigInt(startTime),
         endTime: BigInt(endTime),
         tokenProgram: tokenProgram || undefined,

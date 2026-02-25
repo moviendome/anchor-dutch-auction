@@ -42,6 +42,8 @@ export const rpcSubscriptions = createSolanaRpcSubscriptions(WS_URL);
 export interface AuctionAccount {
   address: Address;
   data: Auction;
+  sellDecimals: number;
+  buyDecimals: number;
 }
 
 export interface CurrentPriceInfo {
@@ -157,9 +159,47 @@ export function useAuctions() {
           decoded.push({
             address: item.pubkey as Address,
             data,
+            sellDecimals: 0,
+            buyDecimals: 0,
           });
         } catch {
           // skip malformed accounts
+        }
+      }
+
+      // Fetch mint decimals for all unique mints
+      const mintSet = new Set<string>();
+      for (const a of decoded) {
+        mintSet.add(a.data.sellMint);
+        mintSet.add(a.data.buyMint);
+      }
+      const mintAddrs = [...mintSet];
+      const mintDecimals = new Map<string, number>();
+
+      if (mintAddrs.length > 0) {
+        const mintResults = await rpc
+          .getMultipleAccounts(mintAddrs.map((m) => m as Address), {
+            encoding: "base64",
+          })
+          .send();
+
+        for (let i = 0; i < mintAddrs.length; i++) {
+          const acct = mintResults.value[i];
+          if (acct) {
+            const d = acct.data;
+            const mintBytes = typeof d === "string"
+              ? Uint8Array.from(atob(d), (c) => c.charCodeAt(0))
+              : Array.isArray(d)
+                ? Uint8Array.from(atob(d[0] as string), (c) => c.charCodeAt(0))
+                : d as unknown as Uint8Array;
+            // SPL Mint layout: decimals at byte offset 44
+            mintDecimals.set(mintAddrs[i], mintBytes[44]);
+          }
+        }
+
+        for (const a of decoded) {
+          a.sellDecimals = mintDecimals.get(a.data.sellMint) ?? 0;
+          a.buyDecimals = mintDecimals.get(a.data.buyMint) ?? 0;
         }
       }
 
@@ -210,6 +250,25 @@ async function buildAndSend(
   return getBase58Decoder().decode(signatureBytes);
 }
 
+function extractErrorMessage(err: unknown): string {
+  if (err instanceof Error) {
+    // Solana errors often nest details in cause or context
+    const msg = err.message;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const cause = (err as any).cause;
+    if (cause instanceof Error) {
+      return `${msg}: ${cause.message}`;
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const context = (err as any).context;
+    if (context && typeof context === "object") {
+      return `${msg} ${JSON.stringify(context)}`;
+    }
+    return msg;
+  }
+  return String(err);
+}
+
 // --- Hook: create auction ---
 
 export function useCreateAuction() {
@@ -256,7 +315,7 @@ export function useCreateAuction() {
         setSignature(sig);
         return sig;
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Transaction failed";
+        const msg = extractErrorMessage(err);
         setError(msg);
         throw err;
       } finally {
@@ -313,7 +372,7 @@ export function useBuyAuction() {
         setSignature(sig);
         return sig;
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Transaction failed";
+        const msg = extractErrorMessage(err);
         setError(msg);
         throw err;
       } finally {
@@ -360,7 +419,7 @@ export function useCancelAuction() {
         setSignature(sig);
         return sig;
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Transaction failed";
+        const msg = extractErrorMessage(err);
         setError(msg);
         throw err;
       } finally {

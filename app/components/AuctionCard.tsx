@@ -263,7 +263,7 @@ export default function AuctionCard({
         <div className="rounded border border-border bg-bg-tertiary p-2">
           <p className="font-mono text-xs text-text-muted">selling</p>
           <p className="font-mono text-sm font-medium text-text">
-            {formatPrice(auction.data.sellAmount)}
+            {formatPrice(auction.data.sellAmount, auction.sellDecimals)}
           </p>
           <p className="font-mono text-xs text-text-muted">
             {truncateAddress(auction.data.sellMint)}
@@ -285,7 +285,7 @@ export default function AuctionCard({
               current_price
             </span>
             <span className="font-mono text-lg font-semibold text-accent">
-              {formatPrice(priceInfo.currentPrice)}
+              {formatPrice(priceInfo.currentPrice, auction.buyDecimals)}
             </span>
           </div>
 
@@ -307,8 +307,8 @@ export default function AuctionCard({
           </div>
 
           <div className="flex justify-between font-mono text-xs text-text-muted">
-            <span>{formatPrice(auction.data.startPrice)}</span>
-            <span>{formatPrice(auction.data.endPrice)}</span>
+            <span>{formatPrice(auction.data.startPrice, auction.buyDecimals)}</span>
+            <span>{formatPrice(auction.data.endPrice, auction.buyDecimals)}</span>
           </div>
         </div>
       )}
